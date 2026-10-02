@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="application-name" content="Decision Roulette">
+<meta name="description" content="Let fate decide — spin the wheel on your options.">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Decision Roulette</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:#0F0A0E;color:#F3F4F6;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+display:flex;align-items:center;justify-content:center;min-height:100dvh;
+-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+.app{width:min(480px,100vw - 24px);height:100dvh;max-height:780px;display:flex;flex-direction:column;
+padding:16px 14px 12px;gap:10px}
+header{text-align:center}
+header h1{font-size:22px;font-weight:700;letter-spacing:.5px;color:#F472B6}
+.addrow{display:flex;gap:8px}
+.addrow input{flex:1;min-height:48px;background:#171017;border:1px solid #3A2233;border-radius:12px;
+color:#F3F4F6;font-size:18px;padding:0 12px;outline:none;font-family:inherit;
+-webkit-user-select:text;user-select:text}
+.addrow input:focus{border-color:#F472B6}
+button{min-height:48px;border:none;border-radius:12px;font-size:18px;font-weight:700;cursor:pointer;
+font-family:inherit;color:#3B0A20;background:#F472B6;padding:0 18px}
+button:active{transform:scale(.97)}
+button:disabled{background:#374151;color:#9CA3AF;cursor:default;transform:none}
+button.del{background:#2A1624;color:#F472B6;min-height:40px;width:44px;flex:none;font-size:18px;padding:0}
+[data-focusable]:focus{outline:none}
+[data-focusable]:focus-visible{outline:3px solid #F472B6;outline-offset:2px}
+.list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;min-height:60px;
+background:#120C11;border:1px solid #2E1B29;border-radius:14px;padding:8px}
+.list .empty{color:#9CA3AF;text-align:center;margin:auto;font-size:15px}
+.opt{display:flex;align-items:center;gap:8px;background:#1B1119;border:1px solid #33202E;
+border-radius:10px;padding:6px 6px 6px 12px;font-size:17px}
+.opt span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.opt.spin-hl{background:#F472B6;color:#3B0A20;font-weight:800;border-color:#F472B6}
+.opt.winner{background:#F472B6;color:#3B0A20;font-weight:800;border-color:#fff;box-shadow:0 0 18px #F472B6}
+.winner-banner{display:none;text-align:center;background:#1B0F18;border:1px solid #F472B6;
+border-radius:14px;padding:6px 8px}
+.winner-banner.show{display:block}
+.winner-banner .cap{font-size:12px;color:#9CA3AF;text-transform:uppercase;letter-spacing:2px}
+.winner-banner .name{font-size:34px;font-weight:800;color:#F472B6;word-break:break-word;line-height:1.1}
+#spinBtn{font-size:24px;letter-spacing:1px}
+.hint{font-size:12px;color:#9CA3AF;text-align:center}
+</style>
+</head>
+<body>
+<div class="app">
+  <header><h1>Decision Roulette</h1></header>
+
+  <div class="addrow">
+    <input id="optInput" type="text" placeholder="Add an option…" maxlength="60" data-focusable
+           aria-label="New option">
+    <button id="addBtn" data-focusable>Add</button>
+  </div>
+
+  <div class="list" id="optList" aria-live="polite"></div>
+
+  <div class="winner-banner" id="banner">
+    <div class="cap">Winner</div>
+    <div class="name" id="winnerName"></div>
+  </div>
+
+  <button id="spinBtn" data-focusable disabled>SPIN</button>
+  <div class="hint">Add at least 2 options, then spin</div>
+</div>
+<script>
+(function(){
+"use strict";
+var KEY="decision-roulette-v1";
+var options=[];
+var spinning=false;
+
+var optInput=document.getElementById("optInput");
+var addBtn=document.getElementById("addBtn");
+var optList=document.getElementById("optList");
+var spinBtn=document.getElementById("spinBtn");
+var banner=document.getElementById("banner");
+var winnerName=document.getElementById("winnerName");
+
+function load(){
+  try{
+    var raw=localStorage.getItem(KEY);
+    if(raw){var arr=JSON.parse(raw); if(Array.isArray(arr)){options=arr.filter(function(s){return typeof s==="string";});}}
+  }catch(e){options=[];}
+}
+function save(){
+  try{localStorage.setItem(KEY,JSON.stringify(options));}catch(e){}
+}
+
+function render(){
+  optList.innerHTML="";
+  if(!options.length){
+    var em=document.createElement("div");
+    em.className="empty";
+    em.textContent="No options yet — add some above";
+    optList.appendChild(em);
+  }
+  options.forEach(function(opt,i){
+    var row=document.createElement("div");
+    row.className="opt";
+    row.id="opt-"+i;
+    var label=document.createElement("span");
+    label.textContent=opt;
+    var del=document.createElement("button");
+    del.className="del";
+    del.textContent="✕";
+    del.setAttribute("data-focusable","");
+    del.setAttribute("aria-label","Delete "+opt);
+    del.addEventListener("click",function(){removeOption(i);});
+    row.appendChild(label);
+    row.appendChild(del);
+    optList.appendChild(row);
+  });
+  spinBtn.disabled=options.length<2||spinning;
+}
+
+function addOption(){
+  var v=optInput.value.trim();
+  if(!v||spinning){return;}
+  options.push(v);
+  optInput.value="";
+  save(); render();
+  optInput.focus();
+}
+function removeOption(i){
+  if(spinning){return;}
+  options.splice(i,1);
+  save(); render();
+}
+
+function pickWinner(n){return Math.floor(Math.random()*n);}
+
+function spin(){
+  if(spinning||options.length<2){return;}
+  spinning=true;
+  banner.classList.remove("show");
+  render();
+  var winner=pickWinner(options.length);
+  var steps=18, step=0, delay=60;
+  function tick(){
+    Array.prototype.forEach.call(optList.children,function(c){c.classList.remove("spin-hl");});
+    var row=document.getElementById("opt-"+(step%options.length));
+    if(row){row.classList.add("spin-hl");}
+    step++;
+    if(step<steps){
+      delay=Math.min(320,delay*1.18); /* slow down toward the end */
+      setTimeout(tick,delay);
+    }else{
+      Array.prototype.forEach.call(optList.children,function(c){c.classList.remove("spin-hl");});
+      var wrow=document.getElementById("opt-"+winner);
+      if(wrow){wrow.classList.add("winner");}
+      winnerName.textContent=options[winner];
+      banner.classList.add("show");
+      spinning=false;
+      render();
+      var wr=document.getElementById("opt-"+winner);
+      if(wr){wr.classList.add("winner");}
+      banner.classList.add("show");
+    }
+  }
+  tick();
+}
+
+addBtn.addEventListener("click",addOption);
+optInput.addEventListener("keydown",function(e){
+  if(e.key==="Enter"){e.preventDefault();addOption();}
+});
+spinBtn.addEventListener("click",spin);
+
+/* D-pad: arrows move between controls, Enter activates */
+function focusables(){
+  return Array.prototype.slice.call(document.querySelectorAll("[data-focusable]"))
+    .filter(function(el){return !el.disabled && el.offsetParent!==null;});
+}
+document.addEventListener("keydown",function(e){
+  var active=document.activeElement;
+  var inField=active && (active.tagName==="INPUT"||active.tagName==="TEXTAREA");
+  if(e.key==="Enter"){
+    if(inField){return;} /* input has its own Enter handler */
+    e.preventDefault();
+    if(active&&active.getAttribute("data-focusable")!==null){active.click();}
+    return;
+  }
+  var fwd=(e.key==="ArrowRight"||e.key==="ArrowDown");
+  var back=(e.key==="ArrowLeft"||e.key==="ArrowUp");
+  if(!fwd&&!back){return;}
+  if(inField&&(e.key==="ArrowLeft"||e.key==="ArrowRight")){return;}
+  e.preventDefault();
+  var items=focusables();
+  if(!items.length){return;}
+  var i=items.indexOf(active);
+  if(i===-1){items[0].focus();return;}
+  i=(i+(fwd?1:-1)+items.length)%items.length;
+  items[i].focus();
+});
+
+load();
+render();
+optInput.focus();
+})();
+</script>
+</body>
+</html>
